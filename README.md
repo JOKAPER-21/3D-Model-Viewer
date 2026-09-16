@@ -4,6 +4,8 @@ A free, browser-based 3D model viewer designed for GitHub Pages.
 
 The viewer is intended to display common 3D asset formats directly in a modern web browser without requiring a backend server or paid hosting.
 
+[View Model.html on GitHub](https://jokaper-21.github.io/3D-Model-Viewer/)
+
 ## Project Goal
 
 Create a reusable web viewer for:
