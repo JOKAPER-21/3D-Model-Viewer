@@ -1,0 +1,676 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>JOKAPER 3D MODEL VIEWER</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<style>
+  :root{
+    --bg:#141414;
+    --panel:#282828;
+    --panel2:#333333;
+    --text:#E0DCDD;
+    --text-dim:#AAAAAA;
+    --accent:#fc50ff;
+    --border:#444444;
+  }
+  *{ margin:0; padding:0; box-sizing:border-box; }
+  html,body{ width:100%; height:100%; overflow:hidden; background:var(--bg); font-family:Arial, sans-serif; -webkit-user-select:none; user-select:none; -webkit-touch-callout:none; touch-action:none; }
+  canvas{ display:block; outline:none; }
+
+  #viewport{ position:fixed; top:0; left:0; width:100%; height:100%; }
+
+  #ui{ position:fixed; top:0; left:0; width:100%; height:100%; pointer-events:none; }
+  #ui *{ pointer-events:auto; }
+
+  /* Top bar */
+  #topBar{
+    position:absolute; top:0; left:0; right:0;
+    display:flex; align-items:center; justify-content:space-between;
+    padding:10px max(12px, env(safe-area-inset-right)) 10px max(12px, env(safe-area-inset-left));
+    background:linear-gradient(rgba(0,0,0,0.55), rgba(0,0,0,0));
+    color:var(--text);
+  }
+  #title{ font-weight:bold; font-size:14px; letter-spacing:0.5px; color:#fff; }
+  #fileInfo{ font-size:11px; color:var(--text-dim); margin-top:2px; }
+
+  /* Drop overlay */
+  #dropOverlay{
+    display:none;
+    position:fixed; top:0; left:0; width:100%; height:100%;
+    background:rgba(252,80,255,0.08);
+    border:3px dashed var(--accent);
+    z-index:50;
+    align-items:center; justify-content:center;
+    color:#fff; font-size:20px; font-weight:bold;
+    text-shadow:0 0 6px rgba(0,0,0,0.6);
+  }
+  #dropOverlay.active{ display:flex; }
+
+  /* Loading */
+  #loadingWrap{
+    display:none;
+    position:fixed; bottom:120px; left:50%; transform:translate(-50%,0);
+    width:320px; flex-direction:column; align-items:center; padding:14px;
+  }
+  #loadingWrap.active{ display:flex; }
+  #loadingText{ font-size:14px; color:#fff; text-align:center; text-shadow:0 0 4px rgba(0,0,0,0.6); margin-bottom:8px; }
+  #loadingBarOuter{ width:100%; height:6px; background:rgba(255,255,255,0.15); border-radius:4px; overflow:hidden; }
+  #loadingBarInner{ width:0%; height:100%; background:var(--accent); transition:width 0.15s ease; }
+
+  /* Message / error */
+  #messageBox{
+    display:none;
+    position:fixed; top:70px; left:50%; transform:translate(-50%,0);
+    padding:10px 16px; border-radius:8px; font-size:13px; z-index:40;
+    color:var(--text); background:rgba(40,40,40,0.9); border:1px solid var(--border);
+    max-width:80%; text-align:center;
+  }
+  #messageBox.error{ border-color:#ff5050; color:#ffb3b3; }
+  #messageBox.success{ border-color:#50ffb0; color:#b3ffdd; }
+
+  /* Empty state hint */
+  #emptyHint{
+    position:fixed; top:50%; left:50%; transform:translate(-50%,-50%);
+    text-align:center; color:var(--text-dim); font-size:14px; pointer-events:none;
+  }
+  #emptyHint .big{ color:#fff; font-size:18px; font-weight:bold; margin-bottom:8px; }
+  #emptyHint.hidden{ display:none; }
+
+  /* Bottom controls */
+  #controlsWrap{
+    position:absolute; left:max(12px, env(safe-area-inset-left)); right:max(12px, env(safe-area-inset-right));
+    bottom:max(12px, env(safe-area-inset-bottom));
+    display:flex; flex-direction:column; gap:8px;
+  }
+  #buttonsRow{
+    display:flex; flex-wrap:wrap; gap:6px; justify-content:center;
+    background:rgba(20,20,20,0.55); padding:8px; border-radius:10px;
+    backdrop-filter:blur(4px);
+  }
+  .ctrlBtn{
+    display:flex; align-items:center; gap:6px;
+    padding:8px 12px; border:1px solid var(--border); border-radius:6px;
+    background:var(--panel); color:var(--text); font-size:12px; cursor:pointer;
+    white-space:nowrap;
+  }
+  .ctrlBtn:hover{ background:var(--panel2); color:#fff; }
+  .ctrlBtn.active{ background:var(--accent); color:#141414; border-color:var(--accent); }
+  .ctrlBtn kbd{
+    font-size:10px; opacity:0.7; border:1px solid currentColor; border-radius:3px; padding:0 4px;
+  }
+
+  #fileInputHidden{ display:none; }
+
+  @media (max-width: 640px){
+    .ctrlBtn span.label{ display:none; }
+    .ctrlBtn{ padding:10px; }
+  }
+</style>
+</head>
+<body>
+
+<div id="viewport"></div>
+
+<div id="dropOverlay">Drop FBX / OBJ / GLTF / GLB file here</div>
+
+<div id="ui">
+  <div id="topBar">
+    <div>
+      <div id="title">JOKAPER 3D MODEL VIEWER</div>
+      <div id="fileInfo">No model loaded</div>
+    </div>
+  </div>
+
+  <div id="emptyHint">
+    <div class="big">JOKAPER 3D MODEL VIEWER</div>
+    <div>Click "Open Model" or drag &amp; drop an FBX / OBJ / GLTF / GLB file</div>
+  </div>
+
+  <div id="messageBox"></div>
+
+  <div id="loadingWrap">
+    <div id="loadingText">Loading model…</div>
+    <div id="loadingBarOuter"><div id="loadingBarInner"></div></div>
+  </div>
+
+  <div id="controlsWrap">
+    <div id="buttonsRow">
+      <button class="ctrlBtn" id="btnOpen"><span class="label">Open Model</span><kbd>O</kbd></button>
+      <button class="ctrlBtn" id="btnReset"><span class="label">Reset Camera</span><kbd>R</kbd></button>
+      <button class="ctrlBtn" id="btnGrid"><span class="label">Grid</span><kbd>G</kbd></button>
+      <button class="ctrlBtn" id="btnAxes"><span class="label">Axes</span><kbd>A</kbd></button>
+      <button class="ctrlBtn" id="btnWireframe"><span class="label">Wireframe</span><kbd>W</kbd></button>
+      <button class="ctrlBtn" id="btnRotate"><span class="label">Auto Rotate</span></button>
+      <button class="ctrlBtn" id="btnFullscreen"><span class="label">Fullscreen</span><kbd>F</kbd></button>
+    </div>
+  </div>
+</div>
+
+<input type="file" id="fileInputHidden" accept=".fbx,.obj,.gltf,.glb">
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+
+<script type="module">
+import * as THREE from "three";
+import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import { FBXLoader } from "three/addons/loaders/FBXLoader.js";
+import { OBJLoader } from "three/addons/loaders/OBJLoader.js";
+import { MTLLoader } from "three/addons/loaders/MTLLoader.js";
+import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+
+/* ---------- DOM ---------- */
+const viewportEl = document.getElementById('viewport');
+const fileInfoEl = document.getElementById('fileInfo');
+const emptyHintEl = document.getElementById('emptyHint');
+const dropOverlayEl = document.getElementById('dropOverlay');
+const loadingWrapEl = document.getElementById('loadingWrap');
+const loadingTextEl = document.getElementById('loadingText');
+const loadingBarEl = document.getElementById('loadingBarInner');
+const messageBoxEl = document.getElementById('messageBox');
+const fileInputEl = document.getElementById('fileInputHidden');
+
+const btnOpen = document.getElementById('btnOpen');
+const btnReset = document.getElementById('btnReset');
+const btnGrid = document.getElementById('btnGrid');
+const btnAxes = document.getElementById('btnAxes');
+const btnWireframe = document.getElementById('btnWireframe');
+const btnRotate = document.getElementById('btnRotate');
+const btnFullscreen = document.getElementById('btnFullscreen');
+
+/* ---------- Scene setup ---------- */
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x141414);
+
+const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.01, 5000);
+camera.position.set(3, 2, 5);
+
+const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+viewportEl.appendChild(renderer.domElement);
+
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+controls.dampingFactor = 0.08;
+controls.autoRotate = false;
+controls.autoRotateSpeed = 2.0;
+
+/* Lighting */
+const hemiLight = new THREE.HemisphereLight(0xffffff, 0x444444, 1.2);
+scene.add(hemiLight);
+
+const dirLight = new THREE.DirectionalLight(0xffffff, 1.5);
+dirLight.position.set(5, 10, 7);
+dirLight.castShadow = true;
+dirLight.shadow.mapSize.set(2048, 2048);
+dirLight.shadow.camera.near = 0.1;
+dirLight.shadow.camera.far = 100;
+scene.add(dirLight);
+
+const fillLight = new THREE.DirectionalLight(0xffffff, 0.4);
+fillLight.position.set(-5, 5, -5);
+scene.add(fillLight);
+
+/* Ground / grid */
+const grid = new THREE.GridHelper(20, 20, 0x555555, 0x333333);
+grid.visible = true;
+scene.add(grid);
+
+const groundPlane = new THREE.Mesh(
+  new THREE.PlaneGeometry(200, 200),
+  new THREE.ShadowMaterial({ opacity: 0.25 })
+);
+groundPlane.rotation.x = -Math.PI / 2;
+groundPlane.receiveShadow = true;
+scene.add(groundPlane);
+
+const axes = new THREE.AxesHelper(2);
+axes.visible = true;
+scene.add(axes);
+
+/* ---------- State ---------- */
+let currentModel = null;
+let wireframeOn = false;
+let defaultCameraState = null;
+
+/* ---------- UI helpers ---------- */
+function showMessage(text, type, duration = 3000) {
+  messageBoxEl.textContent = text;
+  messageBoxEl.className = '';
+  if (type) messageBoxEl.classList.add(type);
+  messageBoxEl.style.display = 'block';
+  clearTimeout(showMessage._t);
+  showMessage._t = setTimeout(() => { messageBoxEl.style.display = 'none'; }, duration);
+}
+
+function setLoading(active, text, pct) {
+  loadingWrapEl.classList.toggle('active', !!active);
+  if (text !== undefined) loadingTextEl.textContent = text;
+  if (pct !== undefined) loadingBarEl.style.width = Math.max(0, Math.min(100, pct)) + '%';
+}
+
+function toggleBtnActive(btn, state) {
+  btn.classList.toggle('active', !!state);
+}
+
+function formatBytes(bytes) {
+  if (!bytes) return '';
+  const units = ['B', 'KB', 'MB', 'GB'];
+  let i = 0, v = bytes;
+  while (v >= 1024 && i < units.length - 1) { v /= 1024; i++; }
+  return v.toFixed(1) + ' ' + units[i];
+}
+
+/* ---------- Model loading / centering ---------- */
+function disposeObject(obj) {
+  obj.traverse((child) => {
+    if (child.isMesh) {
+      child.geometry && child.geometry.dispose();
+      const mats = Array.isArray(child.material) ? child.material : [child.material];
+      mats.forEach((m) => {
+        if (!m) return;
+        Object.keys(m).forEach((key) => {
+          const val = m[key];
+          if (val && val.isTexture) val.dispose();
+        });
+        m.dispose();
+      });
+    }
+  });
+}
+
+function clearCurrentModel() {
+  if (currentModel) {
+    scene.remove(currentModel);
+    disposeObject(currentModel);
+    currentModel = null;
+  }
+}
+
+function frameModel(object) {
+  const box = new THREE.Box3().setFromObject(object);
+  const size = new THREE.Vector3();
+  const center = new THREE.Vector3();
+  box.getSize(size);
+  box.getCenter(center);
+
+  // Center model at origin (X/Z), sit on ground (Y)
+  object.position.x += -center.x;
+  object.position.z += -center.z;
+  object.position.y += -box.min.y;
+
+  const maxDim = Math.max(size.x, size.y, size.z) || 1;
+  const fitDist = maxDim / (2 * Math.tan((Math.PI * camera.fov) / 360));
+  const camDist = fitDist * 1.8;
+
+  camera.near = maxDim / 1000;
+  camera.far = maxDim * 1000;
+  camera.updateProjectionMatrix();
+
+  const dir = new THREE.Vector3(1, 0.6, 1).normalize();
+  camera.position.copy(dir.multiplyScalar(camDist));
+  camera.position.y += size.y * 0.25;
+
+  controls.target.set(0, size.y * 0.3, 0);
+  controls.minDistance = maxDim * 0.02;
+  controls.maxDistance = maxDim * 20;
+  controls.update();
+
+  grid.scale.setScalar(Math.max(1, maxDim / 10));
+
+  defaultCameraState = {
+    position: camera.position.clone(),
+    target: controls.target.clone()
+  };
+}
+
+function applyShadowsAndWireframe(object) {
+  object.traverse((child) => {
+    if (child.isMesh) {
+      child.castShadow = true;
+      child.receiveShadow = true;
+      if (child.material) {
+        const mats = Array.isArray(child.material) ? child.material : [child.material];
+        mats.forEach((m) => {
+          if (m) {
+            m.wireframe = wireframeOn;
+            if (m.transparent === undefined) m.transparent = false;
+          }
+        });
+      }
+    }
+  });
+}
+
+function onModelLoaded(object, meta) {
+  clearCurrentModel();
+  currentModel = object;
+  scene.add(object);
+  applyShadowsAndWireframe(object);
+  frameModel(object);
+  setLoading(false);
+  emptyHintEl.classList.add('hidden');
+  fileInfoEl.textContent = `${meta.name} · ${meta.format.toUpperCase()}${meta.size ? ' · ' + formatBytes(meta.size) : ''}`;
+  showMessage(`Model loaded: ${meta.name}`, 'success');
+}
+
+function onModelError(err, name) {
+  setLoading(false);
+  console.error(err);
+  showMessage(`Error loading "${name}": ${err && err.message ? err.message : 'failed to parse model'}`, 'error', 5000);
+}
+
+function detectExtension(name) {
+  const m = /\.([a-z0-9]+)$/i.exec(name || '');
+  return m ? m[1].toLowerCase() : '';
+}
+
+/* ---------- Loaders per format ---------- */
+function loadFBXFromArrayBuffer(buffer, name, size) {
+  setLoading(true, `Loading ${name}…`, 10);
+  try {
+    const loader = new FBXLoader();
+    const object = loader.parse(buffer, '');
+    onModelLoaded(object, { name, format: 'fbx', size });
+  } catch (err) {
+    onModelError(err, name);
+  }
+}
+
+function loadGLTFFromArrayBuffer(buffer, name, size, resourcePath) {
+  setLoading(true, `Loading ${name}…`, 10);
+  const loader = new GLTFLoader();
+  loader.parse(
+    buffer,
+    resourcePath || '',
+    (gltf) => onModelLoaded(gltf.scene, { name, format: detectExtension(name) || 'gltf', size }),
+    (err) => onModelError(err, name)
+  );
+}
+
+function loadOBJFromText(text, name, size, mtlText, resourcePath) {
+  setLoading(true, `Loading ${name}…`, 10);
+  try {
+    if (mtlText) {
+      const mtlLoader = new MTLLoader();
+      if (resourcePath) mtlLoader.setResourcePath(resourcePath);
+      const materials = mtlLoader.parse(mtlText, resourcePath || '');
+      materials.preload();
+      const objLoader = new OBJLoader();
+      objLoader.setMaterials(materials);
+      const object = objLoader.parse(text);
+      onModelLoaded(object, { name, format: 'obj', size });
+    } else {
+      const objLoader = new OBJLoader();
+      const object = objLoader.parse(text);
+      onModelLoaded(object, { name, format: 'obj', size });
+    }
+  } catch (err) {
+    onModelError(err, name);
+  }
+}
+
+/* ---------- File handling (local picker & drag/drop) ---------- */
+async function handleFile(file) {
+  const ext = detectExtension(file.name);
+  if (!['fbx', 'obj', 'gltf', 'glb'].includes(ext)) {
+    showMessage(`Unsupported file type: .${ext || '?'}`, 'error');
+    return;
+  }
+
+  if (ext === 'fbx') {
+    const buf = await file.arrayBuffer();
+    loadFBXFromArrayBuffer(buf, file.name, file.size);
+  } else if (ext === 'glb') {
+    const buf = await file.arrayBuffer();
+    loadGLTFFromArrayBuffer(buf, file.name, file.size);
+  } else if (ext === 'gltf') {
+    const text = await file.text();
+    // Note: external .bin / textures referenced by a standalone .gltf picked via
+    // file input cannot be resolved without those companion files being available.
+    try {
+      const buf = new TextEncoder().encode(text).buffer;
+      loadGLTFFromArrayBuffer(buf, file.name, file.size);
+    } catch (err) {
+      onModelError(err, file.name);
+    }
+  } else if (ext === 'obj') {
+    const text = await file.text();
+    loadOBJFromText(text, file.name, file.size, null, null);
+  }
+}
+
+/* Multi-file drop support: OBJ+MTL / GLTF+BIN+textures dropped together */
+async function handleFileList(fileList) {
+  const files = Array.from(fileList);
+  if (files.length === 0) return;
+
+  const main = files.find(f => ['fbx', 'obj', 'gltf', 'glb'].includes(detectExtension(f.name)));
+  if (!main) {
+    showMessage('No supported FBX / OBJ / GLTF / GLB file found in drop.', 'error');
+    return;
+  }
+
+  const ext = detectExtension(main.name);
+
+  if (ext === 'obj') {
+    const mtlFile = files.find(f => detectExtension(f.name) === 'mtl');
+    const objText = await main.text();
+    if (mtlFile) {
+      const mtlText = await mtlFile.text();
+      // build blob URLs for referenced textures so MTLLoader/TextureLoader can resolve them
+      const manager = new THREE.LoadingManager();
+      const blobMap = {};
+      files.forEach((f) => {
+        if (f !== main && f !== mtlFile) {
+          blobMap[f.name] = URL.createObjectURL(f);
+        }
+      });
+      manager.setURLModifier((url) => {
+        const clean = url.split('/').pop();
+        return blobMap[clean] || url;
+      });
+      setLoading(true, `Loading ${main.name}…`, 10);
+      try {
+        const mtlLoader = new MTLLoader(manager);
+        const materials = mtlLoader.parse(mtlText, '');
+        materials.preload();
+        const objLoader = new OBJLoader(manager);
+        objLoader.setMaterials(materials);
+        const object = objLoader.parse(objText);
+        onModelLoaded(object, { name: main.name, format: 'obj', size: main.size });
+      } catch (err) {
+        onModelError(err, main.name);
+      }
+    } else {
+      loadOBJFromText(objText, main.name, main.size, null, null);
+    }
+  } else if (ext === 'gltf') {
+    const manager = new THREE.LoadingManager();
+    const blobMap = {};
+    files.forEach((f) => {
+      if (f !== main) blobMap[f.name] = URL.createObjectURL(f);
+    });
+    manager.setURLModifier((url) => {
+      const clean = url.split('/').pop();
+      return blobMap[clean] || url;
+    });
+    const text = await main.text();
+    setLoading(true, `Loading ${main.name}…`, 10);
+    const loader = new GLTFLoader(manager);
+    try {
+      const buf = new TextEncoder().encode(text).buffer;
+      loader.parse(buf, '', (gltf) => onModelLoaded(gltf.scene, { name: main.name, format: 'gltf', size: main.size }), (err) => onModelError(err, main.name));
+    } catch (err) {
+      onModelError(err, main.name);
+    }
+  } else if (ext === 'glb') {
+    const buf = await main.arrayBuffer();
+    loadGLTFFromArrayBuffer(buf, main.name, main.size);
+  } else if (ext === 'fbx') {
+    const buf = await main.arrayBuffer();
+    loadFBXFromArrayBuffer(buf, main.name, main.size);
+  }
+}
+
+/* ---------- URL parameter loading ---------- */
+async function loadFromURL(url) {
+  const decoded = decodeURIComponent(url);
+  const name = decoded.split('/').pop();
+  const ext = detectExtension(name);
+
+  if (!['fbx', 'obj', 'gltf', 'glb'].includes(ext)) {
+    showMessage(`Unsupported URL model type: .${ext || '?'}`, 'error');
+    return;
+  }
+
+  setLoading(true, `Fetching ${name}…`, 5);
+  try {
+    if (ext === 'fbx' || ext === 'glb') {
+      const res = await fetch(decoded);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const buf = await res.arrayBuffer();
+      if (ext === 'fbx') loadFBXFromArrayBuffer(buf, name, buf.byteLength);
+      else loadGLTFFromArrayBuffer(buf, name, buf.byteLength, decoded.substring(0, decoded.lastIndexOf('/') + 1));
+    } else if (ext === 'gltf') {
+      const res = await fetch(decoded);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const buf = await res.arrayBuffer();
+      const basePath = decoded.substring(0, decoded.lastIndexOf('/') + 1);
+      loadGLTFFromArrayBuffer(buf, name, buf.byteLength, basePath);
+    } else if (ext === 'obj') {
+      const basePath = decoded.substring(0, decoded.lastIndexOf('/') + 1);
+      const res = await fetch(decoded);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const text = await res.text();
+      const mtlMatch = /^\s*mtllib\s+(.+)$/mi.exec(text);
+      let mtlText = null;
+      if (mtlMatch) {
+        try {
+          const mtlRes = await fetch(basePath + mtlMatch[1].trim());
+          if (mtlRes.ok) mtlText = await mtlRes.text();
+        } catch (e) { /* ignore, fall back to no materials */ }
+      }
+      loadOBJFromText(text, name, null, mtlText, basePath);
+    }
+  } catch (err) {
+    onModelError(err, name);
+  }
+}
+
+/* ---------- Controls wiring ---------- */
+btnOpen.addEventListener('click', () => fileInputEl.click());
+fileInputEl.addEventListener('change', (e) => {
+  if (e.target.files && e.target.files[0]) {
+    handleFile(e.target.files[0]);
+  }
+  fileInputEl.value = '';
+});
+
+btnReset.addEventListener('click', () => {
+  if (!defaultCameraState) return;
+  camera.position.copy(defaultCameraState.position);
+  controls.target.copy(defaultCameraState.target);
+  controls.update();
+});
+
+btnGrid.addEventListener('click', () => {
+  grid.visible = !grid.visible;
+  toggleBtnActive(btnGrid, grid.visible);
+});
+toggleBtnActive(btnGrid, grid.visible);
+
+btnAxes.addEventListener('click', () => {
+  axes.visible = !axes.visible;
+  toggleBtnActive(btnAxes, axes.visible);
+});
+toggleBtnActive(btnAxes, axes.visible);
+
+btnWireframe.addEventListener('click', () => {
+  wireframeOn = !wireframeOn;
+  if (currentModel) applyShadowsAndWireframe(currentModel);
+  toggleBtnActive(btnWireframe, wireframeOn);
+});
+
+btnRotate.addEventListener('click', () => {
+  controls.autoRotate = !controls.autoRotate;
+  toggleBtnActive(btnRotate, controls.autoRotate);
+});
+
+btnFullscreen.addEventListener('click', () => {
+  if (!document.fullscreenElement) {
+    document.documentElement.requestFullscreen().catch(() => {});
+  } else {
+    document.exitFullscreen().catch(() => {});
+  }
+});
+
+document.addEventListener('keydown', (e) => {
+  const k = e.key.toLowerCase();
+  if (k === 'r') btnReset.click();
+  else if (k === 'g') btnGrid.click();
+  else if (k === 'a') btnAxes.click();
+  else if (k === 'w') btnWireframe.click();
+  else if (k === 'f') btnFullscreen.click();
+  else if (k === 'o') btnOpen.click();
+});
+
+/* Drag & drop */
+let dragCounter = 0;
+window.addEventListener('dragenter', (e) => {
+  e.preventDefault();
+  dragCounter++;
+  dropOverlayEl.classList.add('active');
+});
+window.addEventListener('dragover', (e) => { e.preventDefault(); });
+window.addEventListener('dragleave', (e) => {
+  e.preventDefault();
+  dragCounter = Math.max(0, dragCounter - 1);
+  if (dragCounter === 0) dropOverlayEl.classList.remove('active');
+});
+window.addEventListener('drop', (e) => {
+  e.preventDefault();
+  dragCounter = 0;
+  dropOverlayEl.classList.remove('active');
+  if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length) {
+    handleFileList(e.dataTransfer.files);
+  }
+});
+
+/* ---------- Resize ---------- */
+window.addEventListener('resize', () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+
+/* ---------- Render loop ---------- */
+function animate() {
+  requestAnimationFrame(animate);
+  controls.update();
+  renderer.render(scene, camera);
+}
+animate();
+
+/* ---------- Boot: check ?model= URL param ---------- */
+(function boot() {
+  const params = new URLSearchParams(window.location.search);
+  const modelParam = params.get('model');
+  if (modelParam) {
+    loadFromURL(modelParam);
+  }
+})();
+</script>
+</body>
+</html>
